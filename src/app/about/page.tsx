@@ -3,7 +3,7 @@
 import React from 'react';
 import Navbar from "@/components/sections/navbar";
 import Footer from "@/components/sections/footer";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { 
   Lightbulb, 
   Target, 
