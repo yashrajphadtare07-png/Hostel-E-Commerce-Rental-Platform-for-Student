@@ -3,15 +3,13 @@
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import { Search, Plus, User, Menu, MapPin, X, Wallet, LogOut, LayoutGrid, Info, Users } from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import { auth } from "@/lib/firebase";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 const Navbar = () => {
-  const [college, setCollege] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
+  const { user, profile, signOut } = useAuth();
+  const college = profile?.college || null;
   const [searchQuery, setSearchQuery] = useState("");
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -31,26 +29,8 @@ const Navbar = () => {
     }
   };
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('college')
-          .eq('id', currentUser.uid)
-          .single();
-        if (profile) setCollege(profile.college);
-      } else {
-        setCollege(null);
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
   const handleLogout = async () => {
-    await signOut(auth);
+    await signOut();
     window.location.href = '/';
   };
 
