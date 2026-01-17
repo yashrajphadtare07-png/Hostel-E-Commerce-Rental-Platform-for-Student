@@ -1,42 +1,96 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-
-if (!apiKey) {
-  throw new Error("NEXT_PUBLIC_GEMINI_API_KEY is not defined in environment variables.");
+export interface ItemDescription {
+  title: string;
+  description: string;
+  category: string;
+  condition: string;
+  suggestedPrice: {
+    min: number;
+    max: number;
+    perDay: number;
+  };
+  tags: string[];
 }
 
-const genAI = new GoogleGenerativeAI(apiKey);
+export interface ChatResponse {
+  message: string;
+  suggestions?: string[];
+}
 
-export const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+export interface RecommendationResult {
+  items: string[];
+  reason: string;
+}
 
-export const suggestCategory = async (title: string, description: string) => {
-  const prompt = `Based on the following title and description of a rental item for students, suggest the most appropriate category from this list: Books, Electronics, Lab Gear, Sports, Other.
-  
-  Title: ${title}
-  Description: ${description}
-  
-  Return only the category name.`;
+async function callGeminiAPI(action: string, params: Record<string, any>) {
+  const response = await fetch("/api/gemini", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...params }),
+  });
 
-  try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text().trim();
-  } catch (error) {
-    console.error("Gemini Error:", error);
-    return "Other";
+  if (!response.ok) {
+    const error = await response.json();
+    if (error.error === "QUOTA_EXCEEDED") {
+      throw new Error("QUOTA_EXCEEDED");
+    }
+    if (error.error === "API_KEY_INVALID") {
+      throw new Error("API_KEY_INVALID");
+    }
+    throw new Error(error.message || "Failed to call AI service");
   }
-};
 
-export const generateListingDescription = async (title: string) => {
-  const prompt = `Generate a short, catchy, and professional rental description (max 2 sentences) for a student item called: ${title}. Focus on its utility for campus life.`;
+  return response.json();
+}
 
+export async function generateItemDescription(imageBase64: string, mimeType: string): Promise<ItemDescription> {
+  return callGeminiAPI("generateItemDescription", { imageBase64, mimeType });
+}
+
+export async function getSmartRecommendations(
+  itemCategory: string,
+  itemTitle: string,
+  userHistory?: string[]
+): Promise<RecommendationResult> {
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text().trim();
-  } catch (error) {
-    console.error("Gemini Error:", error);
-    return "";
+    return await callGeminiAPI("recommendations", { itemCategory, itemTitle, userHistory });
+  } catch (error: any) {
+    if (error.message === "QUOTA_EXCEEDED") {
+      return { items: [], reason: "Recommendations temporarily unavailable due to high demand." };
+    }
+    throw error;
   }
-};
+}
+
+export async function chatbotResponse(
+  userMessage: string,
+  conversationHistory: { role: "user" | "assistant"; content: string }[] = []
+): Promise<ChatResponse> {
+  try {
+    return await callGeminiAPI("chatbot", { userMessage, conversationHistory });
+  } catch (error: any) {
+    if (error.message === "QUOTA_EXCEEDED") {
+      return {
+        message: "I'm sorry, I'm a bit overwhelmed with requests right now. Please try again in a few minutes!",
+        suggestions: ["Try later", "Contact Support"],
+      };
+    }
+    throw error;
+  }
+}
+
+export async function suggestPrice(
+  itemName: string,
+  category: string,
+  condition: string,
+  originalPrice?: number
+): Promise<{ min: number; max: number; recommended: number; reasoning: string }> {
+  return callGeminiAPI("suggestPrice", { itemName, category, condition, originalPrice });
+}
+
+export async function verifyItemImage(
+  imageBase64: string,
+  mimeType: string,
+  expectedCategory: string
+): Promise<{ isValid: boolean; confidence: number; detectedCategory: string; issues: string[] }> {
+  return callGeminiAPI("verifyItemImage", { imageBase64, mimeType, expectedCategory });
+}

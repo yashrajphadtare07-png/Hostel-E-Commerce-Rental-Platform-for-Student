@@ -4,12 +4,14 @@ import React, { useEffect, useState, use } from 'react';
 import Navbar from "@/components/sections/navbar";
 import Footer from "@/components/sections/footer";
 import { supabase } from '@/lib/supabase';
-import { MapPin, Star, Info, Loader2, Copy, CheckCircle2, User } from 'lucide-react';
+import { MapPin, Star, Info, Loader2, Copy, CheckCircle2, User, Sparkles, ShoppingBag, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TrustBadge } from '@/components/ui/trust-badge';
+import { getSmartRecommendations } from '@/lib/gemini';
+import { motion, AnimatePresence } from 'motion/react';
 
 const MOCK_RENTER_ID = '00000000-0000-0000-0000-000000000000';
 const PLATFORM_UPI = 'campusrent@upi';
@@ -38,6 +40,11 @@ interface OwnerProfile {
   damage_free: number;
 }
 
+interface Recommendation {
+  items: string[];
+  reason: string;
+}
+
 export default function ItemPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [item, setItem] = useState<Item | null>(null);
@@ -49,6 +56,9 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
   const [copied, setCopied] = useState(false);
   const [userCollege, setUserCollege] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [recommendations, setRecommendations] = useState<Recommendation | null>(null);
+  const [recommendedItems, setRecommendedItems] = useState<Item[]>([]);
+  const [loadingRecs, setLoadingRecs] = useState(false);
 
   useEffect(() => {
     const fetchItem = async () => {
@@ -68,9 +78,10 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
           .single();
         
         if (ownerData) setOwner(ownerData);
+        
+        fetchRecommendations(data.category, data.title);
       }
 
-      // Fetch current user college
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setIsLoggedIn(true);
@@ -90,10 +101,31 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
     fetchItem();
   }, [id]);
 
+  const fetchRecommendations = async (category: string, title: string) => {
+    setLoadingRecs(true);
+    try {
+      const recs = await getSmartRecommendations(category, title);
+      setRecommendations(recs);
+      
+      const { data: items } = await supabase
+        .from('items')
+        .select('*')
+        .neq('id', id)
+        .limit(4);
+      
+      if (items) {
+        setRecommendedItems(items);
+      }
+    } catch (error) {
+      console.error('Failed to fetch recommendations:', error);
+    } finally {
+      setLoadingRecs(false);
+    }
+  };
+
   const handleRent = async () => {
     if (!item || !upiRef) return;
     
-    // Safety check again
     if (userCollege && item.college && userCollege !== item.college) {
       alert("You can only rent items from your own college.");
       return;
@@ -371,6 +403,88 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
               </p>
             </div>
           </div>
+        </div>
+
+        {/* AI-Powered Recommendations */}
+        <div className="mt-16">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-white">Students Also Rent</h2>
+              {recommendations && (
+                <p className="text-white/50 text-sm">{recommendations.reason}</p>
+              )}
+            </div>
+          </div>
+
+          {loadingRecs ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
+              <span className="ml-3 text-white/50">Finding recommendations...</span>
+            </div>
+          ) : recommendations && recommendations.items.length > 0 ? (
+            <div className="space-y-6">
+              {/* AI Suggested Items */}
+              <div className="flex flex-wrap gap-3">
+                {recommendations.items.map((recItem, index) => (
+                  <motion.a
+                    key={index}
+                    href={`/browse?search=${encodeURIComponent(recItem)}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="flex items-center gap-2 px-4 py-2 bg-violet-500/10 border border-violet-500/20 rounded-full text-violet-300 hover:bg-violet-500/20 transition-all group"
+                  >
+                    <ShoppingBag className="w-4 h-4" />
+                    <span className="text-sm font-medium">{recItem}</span>
+                    <ArrowRight className="w-3 h-3 opacity-0 -ml-1 group-hover:opacity-100 group-hover:ml-0 transition-all" />
+                  </motion.a>
+                ))}
+              </div>
+
+              {/* Similar Items from Database */}
+              {recommendedItems.length > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                  <AnimatePresence>
+                    {recommendedItems.map((recItem, index) => (
+                      <motion.a
+                        key={recItem.id}
+                        href={`/item/${recItem.id}`}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                        className="group bg-white/5 border border-white/10 rounded-2xl overflow-hidden hover:border-amber-400/30 transition-all"
+                      >
+                        <div className="relative aspect-square">
+                          <Image
+                            src={recItem.image_url}
+                            alt={recItem.title}
+                            fill
+                            className="object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        </div>
+                        <div className="p-4">
+                          <h4 className="text-white font-medium text-sm line-clamp-1 group-hover:text-amber-400 transition-colors">
+                            {recItem.title}
+                          </h4>
+                          <p className="text-amber-400 font-bold text-sm mt-1">
+                            ₹{recItem.price_per_day}/day
+                          </p>
+                        </div>
+                      </motion.a>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-white/40">
+              <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No recommendations available yet</p>
+            </div>
+          )}
         </div>
       </div>
       <Footer />

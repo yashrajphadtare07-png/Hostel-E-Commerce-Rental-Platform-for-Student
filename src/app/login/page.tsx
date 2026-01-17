@@ -54,10 +54,10 @@ export default function LoginPage() {
             }
 
             // Validate college email domain
-            const collegeDomains = ['.edu', '.ac.in', '.edu.in', 'campusrent.com']; // Added demo domain
+            const collegeDomains = ['.edu', '.ac.in', '.edu.in', '.org', 'campusrent.com'];
             const isCollegeEmail = collegeDomains.some(domain => email.toLowerCase().endsWith(domain));
             if (!isCollegeEmail) {
-              throw new Error('Please use a verified college email ID (e.g., .edu or .ac.in)');
+              throw new Error('Please use a verified college email ID (e.g., .edu, .ac.in, or .org)');
             }
             
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -85,12 +85,12 @@ export default function LoginPage() {
             
             setSuccess('Account created successfully! Redirecting...');
             setTimeout(() => {
-              window.location.href = '/wallet';
+              window.location.href = '/';
             }, 1500);
           } else {
             try {
               await signInWithEmailAndPassword(auth, email, password);
-              window.location.href = '/wallet';
+              window.location.href = '/';
             } catch (err: any) {
               // If account doesn't exist and it's the demo account, auto-signup
               if (email === 'demo@campusrent.com' && (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found')) {
@@ -176,7 +176,7 @@ export default function LoginPage() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@college.edu"
+                    placeholder="name.branch.year@college.org"
                     className="w-full h-12 bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:border-amber-400/50"
                     required
                   />

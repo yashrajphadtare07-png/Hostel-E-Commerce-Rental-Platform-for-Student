@@ -2,11 +2,11 @@
 
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
-import { Search, Plus, User, Menu, MapPin, X, Wallet, LogOut, LayoutGrid, Info, Users, Github } from "lucide-react";
+import { Search, Plus, User, Menu, MapPin, X, Wallet, LogOut, LayoutGrid, Info, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 
 const Navbar = () => {
@@ -54,12 +54,11 @@ const Navbar = () => {
     window.location.href = '/';
   };
 
-    const navLinks = [
-      { name: "Browse", href: "/browse", icon: LayoutGrid },
-      { name: "Community", href: "/community", icon: Users },
-      { name: "About Us", href: "/about", icon: Info },
-      { name: "GitHub", href: "https://github.com", icon: Github, external: true },
-    ];
+  const navLinks = [
+    { name: "Browse", href: "/browse", icon: LayoutGrid },
+    { name: "Community", href: "/community", icon: Users },
+    { name: "About Us", href: "/about", icon: Info },
+  ];
 
   return (
     <>
@@ -127,21 +126,16 @@ const Navbar = () => {
               </div>
             </form>
 
-              {/* Desktop Navigation */}
-              <div className="hidden md:flex items-center gap-2">
-                {navLinks.map((link) => (
-                  <a 
-                    key={link.name} 
-                    href={link.href}
-                    target={link.external ? "_blank" : undefined}
-                    rel={link.external ? "noopener noreferrer" : undefined}
-                  >
-                    <button className="relative px-4 py-2 text-sm font-medium text-white/60 hover:text-white transition-colors group">
-                      {link.name}
-                      <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-amber-400 scale-x-0 group-hover:scale-x-100 transition-transform origin-left" />
-                    </button>
-                  </a>
-                ))}
+            {/* Desktop Navigation */}
+            <div className="hidden md:flex items-center gap-2">
+              {navLinks.map((link) => (
+                <a key={link.name} href={link.href}>
+                  <button className="relative px-4 py-2 text-sm font-medium text-white/60 hover:text-white transition-colors group">
+                    {link.name}
+                    <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-amber-400 scale-x-0 group-hover:scale-x-100 transition-transform origin-left" />
+                  </button>
+                </a>
+              ))}
               
               <div className="h-4 w-[1px] bg-white/10 mx-2" />
 
@@ -212,21 +206,19 @@ const Navbar = () => {
                 />
               </form>
 
-                <div className="grid grid-cols-2 gap-4">
-                  {navLinks.map((link) => (
-                    <a 
-                      key={link.name} 
-                      href={link.href}
-                      target={link.external ? "_blank" : undefined}
-                      rel={link.external ? "noopener noreferrer" : undefined}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-amber-400/30 transition-all group"
-                    >
-                      <link.icon className="w-6 h-6 text-amber-400 group-hover:scale-110 transition-transform" />
-                      <span className="text-sm font-medium">{link.name}</span>
-                    </a>
-                  ))}
-                </div>
+              <div className="grid grid-cols-2 gap-4">
+                {navLinks.map((link) => (
+                  <a 
+                    key={link.name} 
+                    href={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-amber-400/30 transition-all group"
+                  >
+                    <link.icon className="w-6 h-6 text-amber-400 group-hover:scale-110 transition-transform" />
+                    <span className="text-sm font-medium">{link.name}</span>
+                  </a>
+                ))}
+              </div>
 
               <a 
                 href="/list-item"

@@ -3,6 +3,8 @@ import "./globals.css";
 import { VisualEditsMessenger } from "orchids-visual-edits";
 import ErrorReporter from "@/components/ErrorReporter";
 import Script from "next/script";
+import AIChatbot from "@/components/ai-chatbot";
+import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: "CampusRent - Rent Anything from Fellow Students",
@@ -35,6 +37,8 @@ export default function RootLayout({
           data-custom-data='{"appName": "YourApp", "version": "1.0.0", "greeting": "hi"}'
         />
         {children}
+        <Toaster position="top-center" richColors />
+        <AIChatbot />
         <VisualEditsMessenger />
       </body>
     </html>

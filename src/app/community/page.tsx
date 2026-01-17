@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Navbar from "@/components/sections/navbar";
 import { supabase } from "@/lib/supabase";
-import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "@/hooks/use-auth";
+import { motion, AnimatePresence } from "motion/react";
 import { 
   MessageCircle, 
   Heart, 
@@ -71,11 +72,10 @@ const postTypeConfig = {
 };
 
 export default function CommunityPage() {
+  const { user, profile, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('feed');
   const [posts, setPosts] = useState<Post[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
@@ -99,7 +99,6 @@ export default function CommunityPage() {
   });
 
   useEffect(() => {
-    fetchUser();
     fetchPosts();
     fetchChatMessages();
 
@@ -131,19 +130,6 @@ export default function CommunityPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
-
-  const fetchUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    setUser(user);
-    if (user) {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      setProfile(profileData);
-    }
-  };
 
   const fetchPosts = async () => {
     setLoading(true);
@@ -177,7 +163,7 @@ export default function CommunityPage() {
     if (!user || !newPost.title.trim() || !newPost.content.trim()) return;
 
     const postData: any = {
-      user_id: user.id,
+      user_id: user.uid,
       type: newPost.type,
       title: newPost.title,
       content: newPost.content,
@@ -200,19 +186,22 @@ export default function CommunityPage() {
   const handleLikePost = async (postId: string) => {
     if (!user) return;
 
+    const post = posts.find(p => p.id === postId);
+    if (!post) return;
+
     const { data: existingLike } = await supabase
       .from('post_likes')
       .select('id')
       .eq('post_id', postId)
-      .eq('user_id', user.id)
+      .eq('user_id', user.uid)
       .single();
 
     if (existingLike) {
       await supabase.from('post_likes').delete().eq('id', existingLike.id);
-      await supabase.from('community_posts').update({ likes_count: posts.find(p => p.id === postId)!.likes_count - 1 }).eq('id', postId);
+      await supabase.from('community_posts').update({ likes_count: Math.max(0, post.likes_count - 1) }).eq('id', postId);
     } else {
-      await supabase.from('post_likes').insert({ post_id: postId, user_id: user.id });
-      await supabase.from('community_posts').update({ likes_count: posts.find(p => p.id === postId)!.likes_count + 1 }).eq('id', postId);
+      await supabase.from('post_likes').insert({ post_id: postId, user_id: user.uid });
+      await supabase.from('community_posts').update({ likes_count: post.likes_count + 1 }).eq('id', postId);
     }
     fetchPosts();
   };
@@ -222,7 +211,7 @@ export default function CommunityPage() {
 
     await supabase.from('post_comments').insert({
       post_id: selectedPost.id,
-      user_id: user.id,
+      user_id: user.uid,
       content: newComment
     });
     await supabase.from('community_posts').update({ comments_count: selectedPost.comments_count + 1 }).eq('id', selectedPost.id);
@@ -236,7 +225,7 @@ export default function CommunityPage() {
     if (!user || !newChatMessage.trim()) return;
 
     await supabase.from('chat_messages').insert({
-      user_id: user.id,
+      user_id: user.uid,
       message: newChatMessage
     });
     setNewChatMessage('');
@@ -472,7 +461,7 @@ export default function CommunityPage() {
               <div className="h-[calc(100vh-300px)] flex flex-col rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                   {chatMessages.map((msg, index) => {
-                    const isOwnMessage = msg.user_id === user?.id;
+                    const isOwnMessage = msg.user_id === user?.uid;
                     return (
                       <motion.div
                         key={msg.id}
