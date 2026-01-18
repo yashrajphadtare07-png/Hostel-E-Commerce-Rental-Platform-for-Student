@@ -4,7 +4,8 @@ import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Navbar from "@/components/sections/navbar";
 import Footer from "@/components/sections/footer";
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { MapPin, Star, Loader2, Search, Filter, GraduationCap, Grid3X3, List, SlidersHorizontal, ChevronDown, X, IndianRupee } from 'lucide-react';
 import Image from 'next/image';
 import { TrustBadge } from '@/components/ui/trust-badge';
@@ -15,7 +16,7 @@ type SortOption = 'newest' | 'price_low' | 'price_high' | 'rating' | 'reviews';
 type ViewMode = 'grid' | 'list';
 
 interface Item {
-  id: number;
+  id: string;
   title: string;
   description: string;
   price_per_day: number;
@@ -87,32 +88,21 @@ function BrowseContent() {
   }, [yearFilter, category, priceRange]);
 
   useEffect(() => {
-    fetchItems();
+    const itemsRef = collection(db, 'items');
+    const unsubscribe = onSnapshot(itemsRef, (snapshot) => {
+      const itemsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Item[];
+      setItems(itemsData);
+      setLoading(false);
+    }, (error) => {
+      console.error('Firestore error:', error);
+      setLoading(false);
+    });
 
-    const subscription = supabase
-      .channel('browse_items')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
-        fetchItems();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
+    return () => unsubscribe();
   }, []);
-
-  const fetchItems = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('items')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setItems(data);
-    }
-    setLoading(false);
-  };
 
   const filteredAndSortedItems = React.useMemo(() => {
     let result = [...items];

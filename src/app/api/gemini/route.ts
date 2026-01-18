@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+//import { GoogleGenAI } from "@google/genai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+//const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const geminiModel = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,37 +13,44 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case "generateItemDescription":
-        return handleGenerateItemDescription(params);
+        return await handleGenerateItemDescription(params);
       case "suggestPrice":
-        return handleSuggestPrice(params);
+        return await handleSuggestPrice(params);
       case "verifyItemImage":
-        return handleVerifyItemImage(params);
+        return await handleVerifyItemImage(params);
       case "chatbot":
-        return handleChatbot(params);
+        return await handleChatbot(params);
       case "recommendations":
-        return handleRecommendations(params);
+        return await handleRecommendations(params);
       default:
         return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
-  } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    if (error.message?.includes("403") || error.message?.includes("leaked")) {
+    } catch (error: any) {
+      console.error("Gemini API Error:", error);
+      
+      let status = 500;
+      let errorType = "INTERNAL_ERROR";
+      let message = error.message || "An unexpected error occurred";
+
+      if (error.message?.includes("403") || error.message?.includes("API key") || error.message?.includes("leaked")) {
+        status = 403;
+        errorType = "API_KEY_INVALID";
+        message = "AI service is currently unavailable. Please try again later or fill in the details manually.";
+      } else if (error.message?.includes("429") || error.message?.includes("quota")) {
+        status = 429;
+        errorType = "QUOTA_EXCEEDED";
+        message = "AI service is busy. Please try again later.";
+      } else if (error instanceof SyntaxError) {
+        status = 500;
+        errorType = "PARSE_ERROR";
+        message = "Failed to parse AI response as JSON";
+      }
+
       return NextResponse.json(
-        { error: "API_KEY_INVALID", message: "Please configure a valid Gemini API key" },
-        { status: 403 }
+        { error: errorType, message },
+        { status }
       );
     }
-    if (error.message?.includes("429") || error.message?.includes("quota")) {
-      return NextResponse.json(
-        { error: "QUOTA_EXCEEDED", message: "AI service quota exceeded" },
-        { status: 429 }
-      );
-    }
-    return NextResponse.json(
-      { error: "INTERNAL_ERROR", message: error.message },
-      { status: 500 }
-    );
-  }
 }
 
 async function handleGenerateItemDescription({ imageBase64, mimeType }: { imageBase64: string; mimeType: string }) {
@@ -67,10 +76,17 @@ Return ONLY valid JSON, no markdown or extra text.`;
     { inlineData: { mimeType, data: imageBase64 } }
   ]);
 
-  const response = result.response.text();
-  const cleanedResponse = response.replace(/```json\n?|\n?```/g, "").trim();
+  const text = result.response.text();
+  if (!text) throw new Error("Empty response from Gemini");
   
-  return NextResponse.json(JSON.parse(cleanedResponse));
+  const cleanedResponse = text.replace(/```json\n?|\n?```/g, "").trim();
+  try {
+    const json = JSON.parse(cleanedResponse);
+    return NextResponse.json(json);
+  } catch (e) {
+    console.error("Failed to parse Gemini response:", text);
+    throw new SyntaxError("Invalid JSON in Gemini response");
+  }
 }
 
 async function handleSuggestPrice({ itemName, category, condition, originalPrice }: { itemName: string; category: string; condition: string; originalPrice?: number }) {
@@ -99,10 +115,17 @@ Return JSON:
 Return ONLY valid JSON.`;
 
   const result = await geminiModel.generateContent(prompt);
-  const response = result.response.text();
-  const cleanedResponse = response.replace(/```json\n?|\n?```/g, "").trim();
+  const text = result.response.text();
+  if (!text) throw new Error("Empty response from Gemini");
   
-  return NextResponse.json(JSON.parse(cleanedResponse));
+  const cleanedResponse = text.replace(/```json\n?|\n?```/g, "").trim();
+  try {
+    const json = JSON.parse(cleanedResponse);
+    return NextResponse.json(json);
+  } catch (e) {
+    console.error("Failed to parse Gemini response:", text);
+    throw new SyntaxError("Invalid JSON in Gemini response");
+  }
 }
 
 async function handleVerifyItemImage({ imageBase64, mimeType, expectedCategory }: { imageBase64: string; mimeType: string; expectedCategory: string }) {
@@ -130,10 +153,17 @@ Return ONLY valid JSON.`;
     { inlineData: { mimeType, data: imageBase64 } }
   ]);
 
-  const response = result.response.text();
-  const cleanedResponse = response.replace(/```json\n?|\n?```/g, "").trim();
+  const text = result.response.text();
+  if (!text) throw new Error("Empty response from Gemini");
   
-  return NextResponse.json(JSON.parse(cleanedResponse));
+  const cleanedResponse = text.replace(/```json\n?|\n?```/g, "").trim();
+  try {
+    const json = JSON.parse(cleanedResponse);
+    return NextResponse.json(json);
+  } catch (e) {
+    console.error("Failed to parse Gemini response:", text);
+    throw new SyntaxError("Invalid JSON in Gemini response");
+  }
 }
 
 async function handleChatbot({ userMessage, conversationHistory }: { userMessage: string; conversationHistory: { role: "user" | "assistant"; content: string }[] }) {
@@ -175,11 +205,11 @@ Common questions you can answer:
   });
 
   const result = await chat.sendMessage(userMessage);
-  const response = result.response.text();
+  const text = result.response.text();
 
-  const suggestions = extractSuggestions(response, userMessage);
+  const suggestions = extractSuggestions(text, userMessage);
 
-  return NextResponse.json({ message: response, suggestions });
+  return NextResponse.json({ message: text, suggestions });
 }
 
 async function handleRecommendations({ itemCategory, itemTitle, userHistory }: { itemCategory: string; itemTitle: string; userHistory?: string[] }) {
@@ -206,10 +236,17 @@ Return a JSON response:
 Return ONLY valid JSON.`;
 
   const result = await geminiModel.generateContent(prompt);
-  const response = result.response.text();
-  const cleanedResponse = response.replace(/```json\n?|\n?```/g, "").trim();
+  const text = result.response.text();
+  if (!text) throw new Error("Empty response from Gemini");
   
-  return NextResponse.json(JSON.parse(cleanedResponse));
+  const cleanedResponse = text.replace(/```json\n?|\n?```/g, "").trim();
+  try {
+    const json = JSON.parse(cleanedResponse);
+    return NextResponse.json(json);
+  } catch (e) {
+    console.error("Failed to parse Gemini response:", text);
+    throw new SyntaxError("Invalid JSON in Gemini response");
+  }
 }
 
 function extractSuggestions(response: string, userMessage: string): string[] {

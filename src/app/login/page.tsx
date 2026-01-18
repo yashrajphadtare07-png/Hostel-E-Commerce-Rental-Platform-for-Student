@@ -4,9 +4,9 @@ import React, { useState } from 'react';
 import Navbar from "@/components/sections/navbar";
 import Footer from "@/components/sections/footer";
 import { Mail, Lock, Loader2, School, User } from 'lucide-react';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { supabase } from '@/lib/supabase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const COLLEGES = [
   "Savitribai Phule Pune University (SPPU)",
@@ -68,19 +68,22 @@ export default function LoginPage() {
             });
             
             if (user) {
-              const { error: profileError } = await supabase
-                .from('profiles')
-                .upsert({ 
-                  id: user.uid,
+              try {
+                await setDoc(doc(db, 'users', user.uid), {
+                  uid: user.uid,
+                  email: user.email,
+                  fullName: fullName,
                   college: college,
-                  full_name: fullName,
-                  trust_level: 'bronze',
-                  wallet_balance: 100, // Give some starter balance
-                  total_rentals: 0,
-                  on_time_returns: 0,
-                  damage_free: 0
+                  trustLevel: 'bronze',
+                  walletBalance: 100,
+                  totalRentals: 0,
+                  onTimeReturns: 0,
+                  damageFree: 0,
+                  createdAt: serverTimestamp()
                 });
-              if (profileError) console.error('Error creating profile:', profileError);
+              } catch (profileError) {
+                console.error('Error creating profile:', profileError);
+              }
             }
             
             setSuccess('Account created successfully! Redirecting...');

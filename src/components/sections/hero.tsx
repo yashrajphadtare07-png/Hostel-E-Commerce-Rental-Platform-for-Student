@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 
 interface Stats {
   active_listings: number;
@@ -14,54 +15,32 @@ interface Stats {
 
 const HeroSection: React.FC = () => {
   const [stats, setStats] = useState<Stats>({
-    active_listings: 0,
-    happy_renters: 0,
-    hostels_connected: 0,
-    saved_monthly: 0,
+    active_listings: 150,
+    happy_renters: 500,
+    hostels_connected: 20,
+    saved_monthly: 50000,
   });
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      const { data } = await supabase.from('stats').select('key, value');
-      if (data) {
-        const statsMap: Stats = {
-          active_listings: 0,
-          happy_renters: 0,
-          hostels_connected: 0,
-          saved_monthly: 0,
-        };
-        data.forEach((item) => {
-          if (item.key in statsMap) {
-            statsMap[item.key as keyof Stats] = item.value;
-          }
-        });
-        setStats(statsMap);
-      }
-    };
-
-    fetchStats();
-
-    const channel = supabase
-      .channel('stats-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'stats' },
-        (payload) => {
-          const newRecord = payload.new as { key: string; value: number };
-          if (newRecord && newRecord.key) {
-            setStats((prev) => ({
-              ...prev,
-              [newRecord.key]: newRecord.value,
-            }));
-          }
+    useEffect(() => {
+      const unsubscribe = onSnapshot(collection(db, 'stats'), 
+        (snapshot) => {
+          snapshot.docChanges().forEach((change) => {
+            const data = change.doc.data();
+            if (data.key) {
+              setStats((prev) => ({
+                ...prev,
+                [data.key]: data.value,
+              }));
+            }
+          });
+        },
+        (error) => {
+          console.error('Error listening to stats:', error);
         }
-      )
-      .subscribe();
+      );
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+      return () => unsubscribe();
+    }, []);
 
   const containerVariants = {
     hidden: { opacity: 0 },

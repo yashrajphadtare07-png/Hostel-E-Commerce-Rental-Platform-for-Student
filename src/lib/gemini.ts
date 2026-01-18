@@ -28,22 +28,40 @@ async function callGeminiAPI(action: string, params: Record<string, any>) {
     body: JSON.stringify({ action, ...params }),
   });
 
-  if (!response.ok) {
-    const error = await response.json();
-    if (error.error === "QUOTA_EXCEEDED") {
-      throw new Error("QUOTA_EXCEEDED");
-    }
-    if (error.error === "API_KEY_INVALID") {
-      throw new Error("API_KEY_INVALID");
-    }
-    throw new Error(error.message || "Failed to call AI service");
+  const text = await response.text();
+  
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error("Failed to parse API response");
   }
 
-  return response.json();
+  if (!response.ok) {
+    console.log("AI ERROR FULL RESPONSE:", data);
+    console.log("AI ERROR FIELD:", data.error);
+
+    if (data.error === "QUOTA_EXCEEDED") {
+      throw new Error("QUOTA_EXCEEDED");
+    }
+    if (data.error === "API_KEY_INVALID") {
+      throw new Error("API_KEY_INVALID");
+    }
+    throw new Error(data.message || "Failed to call AI service");
+  }
+
+  return data;
 }
 
 export async function generateItemDescription(imageBase64: string, mimeType: string): Promise<ItemDescription> {
-  return callGeminiAPI("generateItemDescription", { imageBase64, mimeType });
+  try {
+    return await callGeminiAPI("generateItemDescription", { imageBase64, mimeType });
+  } catch (error: any) {
+    if (error.message === "API_KEY_INVALID") {
+      throw new Error("QUOTA_EXCEEDED");
+    }
+    throw error;
+  }
 }
 
 export async function getSmartRecommendations(

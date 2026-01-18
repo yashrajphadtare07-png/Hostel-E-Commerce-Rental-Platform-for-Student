@@ -24,11 +24,11 @@ import { useDropzone } from 'react-dropzone';
 import { toast } from 'sonner';
 import Navbar from "@/components/sections/navbar";
 import Footer from "@/components/sections/footer";
-import { auth, storage } from '@/lib/firebase';
+import { auth, db, storage } from '@/lib/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { generateItemDescription, suggestPrice, verifyItemImage } from '@/lib/gemini';
-import { onAuthStateChanged } from 'firebase/auth';
-import { supabase } from '@/lib/supabase';
 
 const STEPS = [
   { id: 1, title: 'Photos', icon: Camera },
@@ -50,7 +50,7 @@ const COLLEGES = [
 const CONDITIONS = ["Like New", "Good", "Fair", "Worn"];
 
 export default function ListItemPage() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -87,20 +87,25 @@ export default function ListItemPage() {
   } | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUser(user);
-        const fetchProfile = async () => {
-          const { data } = await supabase.from('profiles').select('college').eq('id', user.uid).single();
-          if (data?.college) {
-            setFormData(prev => ({ ...prev, college: data.college }));
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            if (userData?.college) {
+              setFormData(prev => ({ ...prev, college: userData.college }));
+            }
           }
-        };
-        fetchProfile();
+        } catch (error) {
+          console.error('Error fetching user profile:', error);
+        }
       } else {
         window.location.href = '/login';
       }
     });
+
     return () => unsubscribe();
   }, []);
 
@@ -265,33 +270,33 @@ export default function ListItemPage() {
       
       if (formData.image) {
         const fileExt = formData.image.name.split('.').pop();
-        const fileName = `${Date.now()}.${fileExt}`;
-        const storageRef = ref(storage, `items/${user.uid}/${fileName}`);
+        const fileName = `${user.uid}/${Date.now()}.${fileExt}`;
+        const storageRef = ref(storage, `items/${fileName}`);
         
         await uploadBytes(storageRef, formData.image);
         imageUrl = await getDownloadURL(storageRef);
       }
 
-      const { error: dbError } = await supabase
-        .from('items')
-        .insert({
-          owner_id: user.uid,
-          title: formData.title,
-          description: formData.description,
-          price_per_day: parseFloat(formData.price_per_day),
-          category: formData.category,
-          image_url: imageUrl,
-          location: formData.location || 'Hostel Campus',
-          college: formData.college,
-          target_year: formData.target_year,
-          trust_level: 'Verified',
-          rating: 5,
-          reviews: 0,
-          condition: formData.condition,
-          tags: formData.tags
-        });
-
-      if (dbError) throw dbError;
+      await addDoc(collection(db, 'items'), {
+        ownerId: user.uid,
+        ownerName: user.displayName || 'Anonymous',
+        ownerEmail: user.email,
+        title: formData.title,
+        description: formData.description,
+        pricePerDay: parseFloat(formData.price_per_day),
+        category: formData.category,
+        imageUrl: imageUrl,
+        location: formData.location || 'Hostel Campus',
+        college: formData.college,
+        targetYear: formData.target_year,
+        trustLevel: 'Verified',
+        rating: 5,
+        reviews: 0,
+        condition: formData.condition,
+        tags: formData.tags,
+        createdAt: serverTimestamp(),
+        available: true
+      });
 
       setSuccess(true);
       toast.success("Item listed successfully!");

@@ -3,7 +3,9 @@
 import React, { useEffect, useState, use } from 'react';
 import Navbar from "@/components/sections/navbar";
 import Footer from "@/components/sections/footer";
-import { supabase } from '@/lib/supabase';
+import { db, auth } from '@/lib/firebase';
+import { doc, getDoc, collection, query, limit, getDocs, addDoc, updateDoc, where } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { MapPin, Star, Info, Loader2, Copy, CheckCircle2, User, Sparkles, ShoppingBag, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
@@ -17,7 +19,7 @@ const MOCK_RENTER_ID = '00000000-0000-0000-0000-000000000000';
 const PLATFORM_UPI = 'campusrent@upi';
 
 interface Item {
-  id: number;
+  id: string;
   title: string;
   description: string;
   price_per_day: number;
@@ -62,38 +64,33 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
 
   useEffect(() => {
     const fetchItem = async () => {
-      const { data, error } = await supabase
-        .from('items')
-        .select('*')
-        .eq('id', id)
-        .single();
+      const itemDoc = await getDoc(doc(db, 'items', id));
       
-      if (!error && data) {
-        setItem(data);
+      if (itemDoc.exists()) {
+        const itemData = { id: itemDoc.id, ...itemDoc.data() } as Item;
+        setItem(itemData);
         
-        const { data: ownerData } = await supabase
-          .from('profiles')
-          .select('full_name, trust_level, total_rentals, on_time_returns, damage_free')
-          .eq('id', data.owner_id)
-          .single();
+        if (itemData.owner_id && itemData.owner_id !== 'demo') {
+          const ownerDoc = await getDoc(doc(db, 'profiles', itemData.owner_id));
+          if (ownerDoc.exists()) {
+            setOwner(ownerDoc.data() as OwnerProfile);
+          }
+        }
         
-        if (ownerData) setOwner(ownerData);
-        
-        fetchRecommendations(data.category, data.title);
+        fetchRecommendations(itemData.category, itemData.title);
       }
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setIsLoggedIn(true);
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('college')
-          .eq('id', user.id)
-          .single();
-        if (profile) setUserCollege(profile.college);
-      } else {
-        setIsLoggedIn(false);
-      }
+      onAuthStateChanged(auth, async (user) => {
+        if (user) {
+          setIsLoggedIn(true);
+          const profileDoc = await getDoc(doc(db, 'profiles', user.uid));
+          if (profileDoc.exists()) {
+            setUserCollege(profileDoc.data()?.college || null);
+          }
+        } else {
+          setIsLoggedIn(false);
+        }
+      });
 
       setLoading(false);
     };
@@ -107,15 +104,13 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
       const recs = await getSmartRecommendations(category, title);
       setRecommendations(recs);
       
-      const { data: items } = await supabase
-        .from('items')
-        .select('*')
-        .neq('id', id)
-        .limit(4);
+      const itemsQuery = query(collection(db, 'items'), limit(4));
+      const snapshot = await getDocs(itemsQuery);
+      const items = snapshot.docs
+        .filter(doc => doc.id !== id)
+        .map(doc => ({ id: doc.id, ...doc.data() })) as Item[];
       
-      if (items) {
-        setRecommendedItems(items);
-      }
+      setRecommendedItems(items.slice(0, 4));
     } catch (error) {
       console.error('Failed to fetch recommendations:', error);
     } finally {
@@ -133,45 +128,53 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
 
     setRenting(true);
     
-    const { data: { user } } = await supabase.auth.getUser();
-    const renterId = user?.id || MOCK_RENTER_ID;
+    const user = auth.currentUser;
+    const renterId = user?.uid || MOCK_RENTER_ID;
 
     const totalAmount = Number(item.price_per_day);
     const serviceFee = totalAmount * 0.1;
     const ownerEarning = totalAmount * 0.9;
 
-    const { error: rentalError } = await supabase.from('rentals').insert({
-      item_id: item.id,
-      renter_id: renterId,
-      owner_id: item.owner_id,
-      start_date: new Date().toISOString().split('T')[0],
-      end_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-      total_amount: totalAmount,
-      service_fee: serviceFee,
-      owner_earning: ownerEarning,
-      status: 'paid',
-      upi_reference: upiRef,
-    });
+    try {
+      await addDoc(collection(db, 'rentals'), {
+        item_id: item.id,
+        renter_id: renterId,
+        owner_id: item.owner_id,
+        start_date: new Date().toISOString().split('T')[0],
+        end_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+        total_amount: totalAmount,
+        service_fee: serviceFee,
+        owner_earning: ownerEarning,
+        status: 'paid',
+        upi_reference: upiRef,
+        created_at: new Date().toISOString()
+      });
 
-    if (!rentalError) {
-      const { data: ownerProf } = await supabase.from('profiles').select('wallet_balance').eq('id', item.owner_id).single();
-      if (ownerProf) {
-        await supabase.from('profiles').update({ 
-          wallet_balance: Number(ownerProf.wallet_balance) + ownerEarning 
-        }).eq('id', item.owner_id);
+      if (item.owner_id && item.owner_id !== 'demo') {
+        const ownerDoc = await getDoc(doc(db, 'profiles', item.owner_id));
+        if (ownerDoc.exists()) {
+          const currentBalance = ownerDoc.data()?.wallet_balance || 0;
+          await updateDoc(doc(db, 'profiles', item.owner_id), {
+            wallet_balance: currentBalance + ownerEarning
+          });
+        }
+
+        await addDoc(collection(db, 'transactions'), {
+          user_id: item.owner_id,
+          amount: ownerEarning,
+          type: 'earning',
+          status: 'completed',
+          description: `Earning from rental: ${item.title}`,
+          created_at: new Date().toISOString()
+        });
       }
 
-      await supabase.from('transactions').insert({
-        user_id: item.owner_id,
-        amount: ownerEarning,
-        type: 'earning',
-        status: 'completed',
-        description: `Earning from rental: ${item.title}`,
-      });
+      setRented(true);
+    } catch (error) {
+      console.error('Rental error:', error);
     }
 
     setRenting(false);
-    setRented(true);
   };
 
   const copyUPI = () => {
